@@ -1,7 +1,7 @@
-import numpy as np
-import collections
-import cv2
 import pickle
+import collections
+import numpy as np
+import cv2
 
 from moviepy.editor import VideoFileClip
 
@@ -10,8 +10,8 @@ from moviepy.editor import VideoFileClip
 class LaneLine():
     """Define a class to receive the characteristics of each line detection"""
     def __init__(self):
-        # was the line detected in the last iteration?
-        self.detected = False
+        # was the line fitted in the last iteration?
+        self.fit_exists = False
         # x values of fit
         self.fitx = []
         # x values averaged
@@ -23,9 +23,7 @@ class LaneLine():
         #polynomial coefficients in image coordinates
         self.fit = [np.array([False])]
         # last 5 polynomial coeffients
-        self.c0 = collections.deque(maxlen=5)
-        self.c1 = collections.deque(maxlen=5)
-        self.c2 = collections.deque(maxlen=5)
+        self.c = [ collections.deque(maxlen=4),  collections.deque(maxlen=4),  collections.deque(maxlen=4)]
         # radius of curvature at top, bottom
         self.r_top = 0
         self.r_bottom = 0
@@ -53,8 +51,8 @@ def warp_matrices():
     src = np.float32(src_pts)
 
     # axis-oriented rectangle for target image to produce "bird's eye view"
-    left, right, top, bottom = 500, 700, 20, 700
-    tgt_pts = [[left, bottom], [left, top], [right, top], [right, bottom]]
+    l, r, t, b = 500, 700, 20, 700
+    tgt_pts = [[l, b], [l, t], [r, t], [r, b]]
     tgt = np.float32(tgt_pts)
 
     # compute transform for warp (and back)
@@ -165,10 +163,10 @@ def find_lines_initially(binary_warped, nonzerox, nonzeroy, left, right):
         win_xright_high = rightx_current + margin
 
         # Identify the nonzero pixels in x and y within the window
-        good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & 
-            (nonzerox >= win_xleft_low) &  (nonzerox < win_xleft_high)).nonzero()[0]
-        good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & 
-            (nonzerox >= win_xright_low) &  (nonzerox < win_xright_high)).nonzero()[0]
+        good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
+                          (nonzerox >= win_xleft_low) & (nonzerox < win_xleft_high)).nonzero()[0]
+        good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
+                           (nonzerox >= win_xright_low) & (nonzerox < win_xright_high)).nonzero()[0]
 
         # Append these indices to the lists
         left_lane_inds.append(good_left_inds)
@@ -177,7 +175,7 @@ def find_lines_initially(binary_warped, nonzerox, nonzeroy, left, right):
         # If you found > minpix pixels, recenter next window on their mean position
         if len(good_left_inds) > minpix:
             leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
-        if len(good_right_inds) > minpix:        
+        if len(good_right_inds) > minpix:
             rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
 
     # Concatenate the arrays of indices
@@ -187,36 +185,34 @@ def find_lines_initially(binary_warped, nonzerox, nonzeroy, left, right):
     return left_lane_inds, right_lane_inds
 
 def weighted_avg(left, right):
-    """Compute weighted average of last 5 polynomial coefficients"""
+    """Compute weighted average of last N polynomial coefficients"""
 
-    append_count = 5
-    if left.detected:
-        append_count = 1
+    N = left.c[0].maxlen
+    if left.fit_exists:
+        N = 1
 
-    for i in range(append_count):
-        left.c0.append(left.fit[0])
-        left.c1.append(left.fit[1])
-        left.c2.append(left.fit[2])
-        right.c0.append(right.fit[0])
-        right.c1.append(right.fit[1])
-        right.c2.append(right.fit[2])
-    
-    #COEF = [1.0, 1.0, 2.0, 3.0, 5.0] # fibonacci sequence
-    COEF = [1.0, 1.0, 1.0, 1.0, 1.0] # fibonacci sequence
+    for i in range(N):
+        for j in range(3):
+            left.c[j].append(left.fit[j])
+            right.c[j].append(right.fit[j])
+
+    COEF = [1.0, 1.0, 2.0, 3.0] # fibonacci sequence
     DENOM = np.sum(COEF)
 
-    left.avg[0] = np.dot(left.c0, COEF)/DENOM
-    left.avg[1] = np.dot(left.c1, COEF)/DENOM
-    left.avg[2] = np.dot(left.c2, COEF)/DENOM
-    right.avg[0] = np.dot(right.c0, COEF)/DENOM
-    right.avg[1] = np.dot(right.c1, COEF)/DENOM
-    right.avg[2] = np.dot(right.c2, COEF)/DENOM
+    for j in range(3):
+        left.avg[j] = np.dot(left.c[j], COEF)/DENOM
+        right.avg[j] = np.dot(right.c[j], COEF)/DENOM
 
 def high_confidence(left, right):
+    """ rate confidence of fit"""
+
     top_width = right.fitx[0] - left.fitx[0]
     bottom_width = right.fitx[-1] - left.fitx[-1]
     ratio = top_width/bottom_width
+
+    # high confidence if lane width consistent
     left.high_confidence = (ratio > 0.9 and ratio < 1.1)
+
     right.high_confidence = left.high_confidence
     return right.high_confidence
 
@@ -228,7 +224,7 @@ def find_lane_lines(binary_warped, left, right):
     nonzeroy = np.array(nonzero[0])
     nonzerox = np.array(nonzero[1])
 
-    if left.detected:
+    if left.fit_exists:
         left_lane_inds, right_lane_inds = find_lines_using_prior(nonzerox, nonzeroy, left, right)
     else:
         left_lane_inds, right_lane_inds = find_lines_initially(binary_warped, nonzerox, nonzeroy, left, right)
@@ -246,7 +242,7 @@ def find_lane_lines(binary_warped, left, right):
     left.fitx = left.fit[0]*ploty**2 + left.fit[1]*ploty + left.fit[2]
     right.fitx = right.fit[0]*ploty**2 + right.fit[1]*ploty + right.fit[2]
 
-    # Conditionally update weighted average of polynomial coefficents 
+    # Conditionally update weighted average of polynomial coefficents
     if high_confidence(left, right):
         weighted_avg(left, right)
 
@@ -257,9 +253,9 @@ def find_lane_lines(binary_warped, left, right):
     left.fit_cr = np.polyfit(ploty*ym_per_pix, left.avgx*xm_per_pix, 2)
     right.fit_cr = np.polyfit(ploty*ym_per_pix, right.avgx*xm_per_pix, 2)
 
-    # use fit to optimize search in next frame
-    left.detected = True
-    right.detected = True
+    # use fit to optimize search in subsequent frames
+    left.fit_exists = True
+    right.fit_exists = True
 
 def unwarp_image_with_lane(image, left, right):
     """draw lane in bird's eye view then unwarp and merge with original view"""
@@ -280,28 +276,18 @@ def unwarp_image_with_lane(image, left, right):
 
     # Combine the result with the original image
     merge = cv2.addWeighted(image, 1, unwarp, 0.3, 0)
-    #merge = cv2.addWeighted(image, 1, warp, 0.3, 0)
-
-    #pts_left = np.array([np.transpose(np.vstack([left.fitx, ploty]))])
-    #pts_right = np.array([np.flipud(np.transpose(np.vstack([right.fitx, ploty])))])
-
-    #left_lane_pts = np.array(pts_left.reshape(-1, 1, 2), np.int32)
-    #right_lane_pts = np.array(pts_right.reshape(-1, 1, 2), np.int32)
-
-    #cv2.polylines(merge, [left_lane_pts], False, (255, 0, 0), thickness=3)
-    #cv2.polylines(merge, [right_lane_pts], False, (255, 0, 0), thickness=3)
 
     return merge
 
 def radius_and_offset(left, right, y_eval):
     """compute radius of curvature and lane centerline offset at y=0 and y=y_eval"""
 
-    # Calculate the radii of curvature at top
+    # Calculate the radii of curvature at top - not currently used
     y = 0
     left.r_top = ((1 + (2*left.fit_cr[0]*y + left.fit_cr[1])**2)**1.5) / np.absolute(2*left.fit_cr[0])
     right.r_top = ((1 + (2*right.fit_cr[0]*y + right.fit_cr[1])**2)**1.5) / np.absolute(2*right.fit_cr[0])
 
-    # compute lane line x position
+    # compute lane line x position - not currently used
     left.x_top = left.fit_cr[0]*y**2 + left.fit_cr[1]*y + left.fit_cr[2]
     right.x_top = right.fit_cr[0]*y**2 + right.fit_cr[1]*y + right.fit_cr[2]
 
@@ -325,13 +311,6 @@ def annotate_image(image, left, right):
     w_top = right.x_top - left.x_top
     w_bottom = right.x_bottom - left.x_bottom
 
-    r_l_string = 'Left Radius of curvature = {} m'.format(int(left.r_bottom))
-    r_r_string = 'Right Radius of curvature = {} m'.format(int(right.r_bottom))
-    t_w_string = 'Lane width at top = {:.2f} m'.format(w_top)
-    b_w_string = 'Lane width at bottom = {:.2f} m'.format(w_bottom)
-    ratio_string = 'Lane width ratio = {:.2f} m'.format(w_top/w_bottom)
-    confidence_string = 'High confidence = {}'.format(left.high_confidence)
-
     curvature_string = 'Radius of curvature = {} m'.format(avg_radius)
     offset_string = 'Vehicle is {:.2f} m '.format(np.abs(offset))
 
@@ -341,14 +320,8 @@ def annotate_image(image, left, right):
         offset_string += 'left of center'
 
     font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(image, curvature_string, (20, 50), font, 1, (0,255,255), 2, cv2.LINE_AA)
-    cv2.putText(image, offset_string, (20, 100), font, 1, (0,255,255), 2, cv2.LINE_AA)
-    cv2.putText(image, r_l_string, (20, 150), font, 1, (0,255,255), 2, cv2.LINE_AA)
-    cv2.putText(image, r_r_string, (20, 200), font, 1, (0,255,255), 2, cv2.LINE_AA)
-    #cv2.putText(image, t_w_string, (20, 250), font, 1, (0,255,255), 2, cv2.LINE_AA)
-    #cv2.putText(image, b_w_string, (20, 300), font, 1, (0,255,255), 2, cv2.LINE_AA)
-    #cv2.putText(image, ratio_string, (20, 350), font, 1, (0,255,255), 2, cv2.LINE_AA)
-    cv2.putText(image, confidence_string, (20, 400), font, 1, (0,255,255), 2, cv2.LINE_AA)
+    cv2.putText(image, curvature_string, (20, 50), font, 1, (0, 255, 255), 2, cv2.LINE_AA)
+    cv2.putText(image, offset_string, (20, 100), font, 1, (0, 255, 255), 2, cv2.LINE_AA)
 
     return image
 
@@ -371,9 +344,7 @@ def process_image(image):
     find_lane_lines(binary_warped, left, right)
 
     # draw lane in warped perspective and unwarp back
-    rgb_warped = np.dstack((binary_warped, binary_warped, binary_warped))*255 # DEBUG
     image = unwarp_image_with_lane(image, left, right)
-    #image = unwarp_image_with_lane(rgb_warped, left, right) # DEBUG
 
     # compute radius of curvature and lane centerline offset
     radius_and_offset(left, right, image.shape[0])
@@ -382,8 +353,6 @@ def process_image(image):
     image = annotate_image(image, left, right)
 
     return image
-    #rgb_warped = np.dstack((binary_warped, binary_warped, binary_warped))*255
-    #return rgb_warped
 
 ########################################################################
 
@@ -393,12 +362,12 @@ M, MINV = warp_matrices()  # warping transform and inverse
 
 height = 720
 ploty = np.linspace(0, height-1, height)
- 
+
 # Define conversions in x and y from pixels space to meters
 ym_per_pix = 3.0/85 # meters per pixel in y dimension
 xm_per_pix = 3.7/275 # meters per pixel in x dimension
 
-# global variables
+# global variables for lane right and left edge data
 left = LaneLine()
 right = LaneLine()
 
