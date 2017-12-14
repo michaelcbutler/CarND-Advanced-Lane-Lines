@@ -46,6 +46,8 @@ I then used the output `objpoints` and `imgpoints` to compute the camera calibra
 
 ![alt text][image1]
 
+For the video pipeline, I did not recompute the camera distortion parameters. Rather, I saved these in the file `camera_cal_pickle.p` and read them in the function `lens_factors()`.
+
 ### Pipeline (single images)
 
 #### 1. Provide an example of a distortion-corrected image.
@@ -64,50 +66,42 @@ I experimented with Sobel gradients in order to suppress the non-lane line infor
 
 ![alt text][image3.2]
 
+While this combination of thresholding produced good results for the test images, performance on some video frames was poor. I removed the gradient direction thresholding to achieve more consistent performance for the video. The code for the video pipeline is in the function `threshold()`.
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
-The code for my perspective transform includes a function called `warper()`, which appears in lines 1 through 8 in the file `example.py` (output_images/examples/example.py) (or, for example, in the 3rd code cell of the IPython notebook).  The `warper()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dst`) points.  I chose the hardcode the source and destination points in the following manner:
+The matrices for the perspective transform (and inverse) are intiialized in the function  `warp_matrices()`.  This function requires source (`src`) and target (`tgt`) points.  I chose the source and target points by selecting points defining a rectangle in the lane from the driving perspective and from above:
 
-```python
-src = np.float32(
-    [[(img_size[0] / 2) - 55, img_size[1] / 2 + 100],
-    [((img_size[0] / 6) - 10), img_size[1]],
-    [(img_size[0] * 5 / 6) + 60, img_size[1]],
-    [(img_size[0] / 2 + 55), img_size[1] / 2 + 100]])
-dst = np.float32(
-    [[(img_size[0] / 4), 0],
-    [(img_size[0] / 4), img_size[1]],
-    [(img_size[0] * 3 / 4), img_size[1]],
-    [(img_size[0] * 3 / 4), 0]])
-```
-
-This resulted in the following source and destination points:
-
-| Source        | Destination   | 
+| Source        | Target        | 
 |:-------------:|:-------------:| 
-| 585, 460      | 320, 0        | 
-| 203, 720      | 320, 720      |
-| 1127, 720     | 960, 720      |
-| 695, 460      | 960, 0        |
+| 300, 660      | 500, 700      | 
+| 596, 450      | 500, 20       |
+| 689, 450      | 700, 20       |
+| 1020, 660     | 700, 700      |
 
-I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
+These matrices are used in the functions `warp_image()` to transform the image to the bird's eye view and `unwarp_image_with_lane()` to return to the original perspective.
+
+I verified that my perspective transform was working as expected by drawing the `src` and `tgt` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image. 
 
 ![alt text][image4]
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
-Then I did some other stuff and fit my lane lines with a 2nd order polynomial kinda like this:
+Beginning with a histogram of the lower half of the warped binary image to identify the peaks corresponding to the lane lines, the function `find_lane_lines_intially()` walks up the image collecting pixels within a window of predicted lane line position. The function `np.polyfit()` is used to fit a quadratic polynomial to the pixels (in `find_lane_lines()`). On subsequent frames the prior polynomial is used to accelerate the pixel collection (in `find_lane_lines_using_prior()`).
+
+The pixel-space polynomials are evaluated at the top and bottom of the image so as to compare lane width. If the width is consistent, then the fit is considered good and this newest fit is averaged with the previous four successful fits to produce a composite fit. Otherwise, the newest fit is ignored. The composite fit is used to generate another set of lane line points. These pixel coordinates are mapped to world space coordinates and refit with another quadratic polynomial.
 
 ![alt text][image5]
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
-I did this in lines # through # in my code in `my_other_file.py`
+The curvature is computed from the quadratic polynomial used to fit the lane line. The curvature of each lane line is evaluated at the bottom of the image (nearest the car) and averaged. The offset is computed by averaging the x-coordinates when evaluating the polynomials at the bottom of the image and subtracting it from the vehicle center. This computation is done in the function `radius_and_offset()`.
+
+The quadratics are converted from a pixel-space fit to a world-space fit by scaling by an estimated meters:pixel factor in x and y. In my case, the estimates seem suspect.
 
 #### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 
-I implemented this step in lines # through # in my code in `yet_another_file.py` in the function `map_lane()`.  Here is an example of my result on a test image:
+I implemented this in the function `unwarp_image_with_lane()`.  Here is an example of my result on a test image:
 
 ![alt text][image6]
 
@@ -117,7 +111,7 @@ I implemented this step in lines # through # in my code in `yet_another_file.py`
 
 #### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (wobbly lines are ok but no catastrophic failures that would cause the car to drive off the road!).
 
-Here's a [link to my video result](./project_video.mp4)
+Here's a [link to my video result](./test_output.mp4)
 
 ---
 
@@ -125,4 +119,9 @@ Here's a [link to my video result](./project_video.mp4)
 
 #### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
-Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.  
+The approach taken is very brittle - small changes in one frame will give bad results. Only by averaging successive frames and discarding outliers could I generate meaningful lane data.
+- Finding the two highest peaks in the histogram is an unrealiable approach for the initial locating of the lane lines. Since we know the car (and therefore camera) is roughly centered in the lane, looking for the two relative peaks a lane width apart seems more robust.
+- The quadratic fit to the pixels seems inadequate. Two important constraints are ignored: 1) the lane lines should be parallel in plan view and 2) the slope of the lines should vertical at the base of the image (parallel to the car's direction - assuming the car isn't spinning out!).
+- My current implementation judges the correctness of the polynomial fit by comparing the lane width at the top and bottom of the frame. This is not very robust. The slope at the top and bottom should also be a factor. Also the number of pixels (and their spatial distribution) used to fit the quadratic should be considered.
+- My current implementation also considers the fit correctness for the quadratics as a pair. This ignores the fact that typically only one quadratic fit is bad in any particular frame (for the test video at least).
+- More tuning of the thresholding logic seems indicated. Perhaps using a Kirsch operator would improve performance.
