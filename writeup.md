@@ -32,13 +32,13 @@ The goals / steps of this project are the following:
 
 #### 1. Provide a Writeup / README that includes all the rubric points and how you addressed each one.   
 
-You're reading it!
+You're reading it! Additional comments can be found in the IPython notebook, `AdvancedLaneFinding.ipynb`.
 
 ### Camera Calibration
 
 #### 1. Briefly state how you computed the camera matrix and distortion coefficients. Provide an example of a distortion corrected calibration image.
 
-The code for this step is contained in the first two code cells of the IPython notebook located in "./AdvancedLaneFinding.ipynb." 
+The code for this step is contained in the first two code cells of the IPython notebook. 
 
 I start by preparing "object points", which will be the (x, y, z) coordinates of the chessboard corners in the world. Here I am assuming the chessboard is fixed on the (x, y) plane at z=0, such that the object points are the same for each calibration image.  Thus, `objp` is just a replicated array of coordinates, and `objpoints` will be appended with a copy of it every time I successfully detect all chessboard corners in a test image.  `imgpoints` will be appended with the (x, y) pixel position of each of the corners in the image plane with each successful chessboard detection. Note that some of the calibration images clipped the chessboard pattern were discarded for the computation. 
 
@@ -52,7 +52,7 @@ For the video pipeline, I did not recompute the camera distortion parameters. Ra
 
 #### 1. Provide an example of a distortion-corrected image.
 
-The code for this step is contained in the third code cell of the IPython notebook. I reuse the previously computed and saved camera calibration data and apply the `cv2.undistort` function to a test image. The following pair of images illustrate the camera lens distortion correction for an example test image:
+The code for this step is contained in the third code cell of the IPython notebook. I reuse the previously computed and saved camera calibration data and apply the `cv2.undistort()` function to a test image. The following pair of images illustrate the camera lens distortion correction for an example test image:
 
 ![alt text][image2]
 
@@ -66,7 +66,7 @@ I experimented with Sobel gradients in order to suppress the non-lane line infor
 
 ![alt text][image3.2]
 
-While this combination of thresholding produced good results for the test images, performance on some video frames was poor. I removed the gradient direction thresholding to achieve more consistent performance for the video. The code for the video pipeline is in the function `threshold()`.
+While this combination of thresholding produced good results for my test image, performance on some video frames was poor. I removed the gradient direction thresholding to achieve more consistent performance for the video. The code for the video pipeline is in the function `threshold()`.
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
@@ -87,7 +87,7 @@ I verified that my perspective transform was working as expected by drawing the 
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
-Beginning with a histogram of the lower half of the warped binary image to identify the peaks corresponding to the lane lines, the function `find_lane_lines_intially()` walks up the image collecting pixels within a window of predicted lane line position. The function `np.polyfit()` is used to fit a quadratic polynomial to the pixels (in `find_lane_lines()`). On subsequent frames the prior polynomial is used to accelerate the pixel collection (in `find_lane_lines_using_prior()`).
+Beginning with a histogram of the lower half of the warped binary image to identify the peaks corresponding to the lane lines, the function `find_lane_lines_intially()` walks up the image collecting pixels within a window of expected lane line position. The function `np.polyfit()` is used to fit a quadratic polynomial to the pixels (in `find_lane_lines()`). On subsequent frames the prior polynomial is used to accelerate the pixel collection (in `find_lane_lines_using_prior()`).
 
 The pixel-space polynomials are evaluated at the top and bottom of the image so as to compare lane width. If the width is consistent, then the fit is considered good and this newest fit is averaged with the previous four successful fits to produce a composite fit. Otherwise, the newest fit is ignored. The composite fit is used to generate another set of lane line points. These pixel coordinates are mapped to world space coordinates and refit with another quadratic polynomial.
 
