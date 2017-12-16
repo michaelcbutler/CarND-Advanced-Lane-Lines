@@ -134,7 +134,6 @@ def find_lines_initially(binary_warped, nonzerox, nonzeroy, left, right):
     # Find the peak of the left and right halves of the histogram
     # These will be the starting point for the left and right lines
     midpoint = np.int(histogram.shape[0]/2)
-    lane_width = 275
     start = midpoint - lane_width
     end = midpoint+ lane_width
     leftx_base = np.argmax(histogram[start:midpoint]) + start
@@ -368,8 +367,9 @@ height = 720
 ploty = np.linspace(0, height-1, height)
 
 # Define conversions in x and y from pixel space to meters
+lane_width = 275 # pixels
 ym_per_pix = 3.0/85 # meters per pixel in y dimension
-xm_per_pix = 3.7/275 # meters per pixel in x dimension
+xm_per_pix = 3.7/lane_width # meters per pixel in x dimension
 
 # global variables for lane right and left edge data
 left = LaneLine()
