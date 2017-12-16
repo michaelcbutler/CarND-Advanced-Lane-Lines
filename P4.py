@@ -51,7 +51,7 @@ def warp_matrices():
     src = np.float32(src_pts)
 
     # axis-oriented rectangle for target image to produce "bird's eye view"
-    l, r, t, b = 500, 700, 20, 700
+    l, r, t, b = 500, 780, 20, 700
     tgt_pts = [[l, b], [l, t], [r, t], [r, b]]
     tgt = np.float32(tgt_pts)
 
@@ -134,8 +134,11 @@ def find_lines_initially(binary_warped, nonzerox, nonzeroy, left, right):
     # Find the peak of the left and right halves of the histogram
     # These will be the starting point for the left and right lines
     midpoint = np.int(histogram.shape[0]/2)
-    leftx_base = np.argmax(histogram[:midpoint])
-    rightx_base = np.argmax(histogram[midpoint:]) + midpoint
+    lane_width = 275
+    start = midpoint - lane_width
+    end = midpoint+ lane_width
+    leftx_base = np.argmax(histogram[start:midpoint]) + start
+    rightx_base = np.argmax(histogram[midpoint:end]) + midpoint
 
     nwindows = 9 # number of sliding windows
     window_height = np.int(binary_warped.shape[0]/nwindows) #  height of window
@@ -305,8 +308,9 @@ def annotate_image(image, left, right):
 
     # avg radius and lane center offset at bottom
     avg_radius = int(0.5*(left.r_bottom + right.r_bottom)) # average left and right
-    ctr = 0.5*(left.x_bottom + right.x_bottom)
-    offset = ctr - 640*xm_per_pix
+    lane_ctr = 0.5*(left.x_bottom + right.x_bottom)
+    car_ctr = image.shape[1]/2*xm_per_pix
+    offset = lane_ctr - car_ctr # positive on left side of center
 
     w_top = right.x_top - left.x_top
     w_bottom = right.x_bottom - left.x_bottom
@@ -314,7 +318,7 @@ def annotate_image(image, left, right):
     curvature_string = 'Radius of curvature = {} m'.format(avg_radius)
     offset_string = 'Vehicle is {:.2f} m '.format(np.abs(offset))
 
-    if offset > 0:
+    if offset < 0:
         offset_string += 'right of center'
     else:
         offset_string += 'left of center'
@@ -363,7 +367,7 @@ M, MINV = warp_matrices()  # warping transform and inverse
 height = 720
 ploty = np.linspace(0, height-1, height)
 
-# Define conversions in x and y from pixels space to meters
+# Define conversions in x and y from pixel space to meters
 ym_per_pix = 3.0/85 # meters per pixel in y dimension
 xm_per_pix = 3.7/275 # meters per pixel in x dimension
 
@@ -372,6 +376,6 @@ left = LaneLine()
 right = LaneLine()
 
 # load video, process each frame, write processed video
-input_video = VideoFileClip("project_video.mp4")#.subclip(20, 25)
+input_video = VideoFileClip("project_video.mp4")#.subclip(0, 5)
 output_video = input_video.fl_image(process_image)
 output_video.write_videofile('test_output.mp4', audio=False)
